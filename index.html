@@ -202,11 +202,6 @@
 
     .monaco-accent{border-left:4px solid var(--monaco-red);padding-left:var(--space-4)}
 
-    /* =========================
-       CHAT (UX FIX)
-       The “empty space under the disclaimer” is the empty messages area.
-       We fill it with Quick Questions + tips INSIDE the chat panel (not as a separate card).
-       ========================= */
     .chat{
       display:flex;
       flex-direction:column;
@@ -232,7 +227,6 @@
       gap:var(--space-4);
     }
 
-    /* Empty-state panel = only actionable UI (no “Bienvenue” text) */
     .empty-panel{
       border:1px dashed var(--gray-300);
       border-radius:var(--radius-lg);
@@ -479,8 +473,6 @@
                  aria-live="polite"
                  aria-relevant="additions text">
 
-              <!-- ✅ UX FIX: This panel fills the “empty space” when there are no messages.
-                   It contains ONLY actionable UI (no welcome text). -->
               <div id="emptyPanel" class="empty-panel" hidden>
                 <h3 class="empty-panel__title">Questions rapides</h3>
                 <p class="empty-panel__hint">Cliquez sur une question pour pré-remplir votre message.</p>
@@ -551,7 +543,9 @@
   </main>
 
   <script>
-    const API_URL = ""; // leave empty for demo mode (no network)
+    // ✅ FIX: put URL in API_URL string (and keep fetch(API_URL, ...))
+    // IMPORTANT: this URL looks like a web UI page, not an API. It may not return JSON.
+    const API_URL = "https://app.chatgptbuilder.io/webchat/?p=1120485&id=dVJHWjXLkq4OhmzmTo";
 
     const STORAGE_KEY = "eme_chat_v1";
     const THEME_KEY = "eme_theme_v1";
@@ -652,7 +646,6 @@
     }
 
     function isWelcomeBubble(msg) {
-      // Remove previously saved welcome message if it exists in localStorage
       if (!msg || msg.role !== "assistant") return false;
       const t = String(msg.text || "").toLowerCase();
       return t.includes("bonjour") && t.includes("assistant officiel eme");
@@ -666,7 +659,6 @@
     }
 
     function syncEmptyPanel(messages) {
-      // Show quick questions inside the empty chat space only when no messages
       emptyPanelEl.hidden = (messages.length > 0);
     }
 
@@ -728,8 +720,6 @@
     function scrollToBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
 
     function renderAll(messages) {
-      // Keep emptyPanel in DOM and just toggle visibility
-      // Clear only message nodes (we rebuild them), and keep emptyPanel by re-appending it after.
       chatEl.innerHTML = "";
       chatEl.appendChild(emptyPanelEl);
 
@@ -753,13 +743,6 @@
     function addSystemMessage(text) {
       state = loadState();
       addMessage(state, "system", text);
-    }
-
-    function setSendEnabled() {
-      const raw = inputEl.value ?? "";
-      const trimmed = raw.trim();
-      const enabled = trimmed.length > 0 && raw.length <= MAX_CHARS && !isSending;
-      sendBtn.disabled = !enabled;
     }
 
     function updateCounter() {
@@ -810,51 +793,23 @@
         ].join("\n");
       }
 
-      if (t.includes("autodiagnostic") || t.includes("maturité") || t.includes("score")) {
-        return [
-          "L’**autodiagnostic de maturité numérique** est le premier pas pour structurer votre transition numérique :",
-          "",
-          "- **35 questions** (environ **15 minutes**).",
-          "- Évalue 5 dimensions : **Vision du numérique**, **Organisation & culture**, **Présence en ligne**, **Vente & relation client**, **Sécurité & infrastructures**.",
-          "- Résultat : un score **1 à 100** + des notes par thématique + des recommandations.",
-          "",
-          "Prochaine étape : créez un compte sur EME, lancez l’autodiagnostic, puis utilisez les recommandations pour trouver des partenaires."
-        ].join("\n");
-      }
-
-      if (t.includes("flashlearn") || t.includes("opportunité ia") || t.includes("2026")) {
-        return [
-          "Nouveautés **2026** mentionnées sur la plateforme EME :",
-          "",
-          "- **Questionnaire “Opportunité IA”** : outil rapide pour identifier où l’IA peut créer de la valeur dans votre activité.",
-          "- **FlashLearn IA** : parcours e-learning structuré par thématiques, avec des modules courts et concrets.",
-          "",
-          "Prochaine étape : explorez la rubrique EME dédiée aux ressources et à l’IA (Tool Box / contenus 2026)."
-        ].join("\n");
-      }
-
-      if (t.includes("annuaire") || t.includes("professionnel")) {
-        return [
-          "L’**annuaire des professionnels du numérique** EME vous aide à trouver des experts locaux pour vous accompagner :",
-          "",
-          "- Liste **non exhaustive** de prestataires enregistrés au **Répertoire du Commerce et de l’Industrie de Monaco (RCI)**.",
-          "- Des prestataires monégasques non listés peuvent aussi vous accompagner.",
-          "- Attention : tous les services listés ne sont pas forcément éligibles au Fonds Bleu (consultez les conditions).",
-          "",
-          "Prochaine étape : filtrez par expertise, contactez plusieurs prestataires, et comparez leur approche selon votre besoin."
-        ].join("\n");
-      }
-
       return [
         "Je peux vous aider sur : **EME**, l’**autodiagnostic**, l’**annuaire**, **FlashUP**, la **Tool Box**, et le **Fonds Bleu**.",
         "",
-        "Quelle est votre question : diagnostic, financement, recherche de prestataire, ou montée en compétence IA (FlashLearn IA) ?"
+        "Quelle est votre question ?"
       ].join("\n");
     }
 
     let state = [];
     let isSending = false;
     let pendingTypingId = null;
+
+    function setSendEnabled() {
+      const raw = inputEl.value ?? "";
+      const trimmed = raw.trim();
+      const enabled = trimmed.length > 0 && raw.length <= MAX_CHARS && !isSending;
+      sendBtn.disabled = !enabled;
+    }
 
     function setTyping(on) {
       if (pendingTypingId) {
@@ -925,6 +880,7 @@
       try {
         let replyText = "";
 
+        // If API_URL is empty, use demo mode. Otherwise call API_URL.
         if (!API_URL) {
           await new Promise(r => setTimeout(r, 450));
           replyText = demoReply(trimmed);
@@ -933,8 +889,8 @@
           let res, json;
 
           try {
-           res = await fetch("https://app.chatgptbuilder.io/webchat/?p=1120485&id=dVJHWjXLkq4OhmzmTo", {
-
+            // ✅ FIX: use fetch(API_URL, ...) and API_URL is a quoted string.
+            res = await fetch(API_URL, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
@@ -945,7 +901,10 @@
           }
 
           if (!res.ok) throw new Error(`Erreur serveur (${res.status})`);
+
+          // NOTE: if API_URL returns HTML, this will throw.
           json = await res.json();
+
           replyText = extractReply(json);
           if (!replyText) throw new Error("Réponse vide ou format inattendu.");
         }
@@ -1016,13 +975,6 @@
       });
     }
 
-    function setSendEnabled() {
-      const raw = inputEl.value ?? "";
-      const trimmed = raw.trim();
-      const enabled = trimmed.length > 0 && raw.length <= MAX_CHARS && !isSending;
-      sendBtn.disabled = !enabled;
-    }
-
     function init() {
       initTheme();
 
@@ -1061,5 +1013,3 @@
   </script>
 </body>
 </html>
-
-
