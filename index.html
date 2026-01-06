@@ -14,6 +14,9 @@
   <script defer src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
 
+  <!-- ✅ Chatbuilder plugin (avoids CORS by embedding widget) -->
+  <script defer src="https://app.chatgptbuilder.io/webchat/plugin.js?v=6"></script>
+
   <style>
     :root{
       --monaco-red:#CE1126; --monaco-red-rgb:206,17,38;
@@ -257,14 +260,11 @@
       gap:var(--space-2);
     }
 
-    .msg{display:flex;gap:var(--space-3);margin-bottom:var(--space-4);align-items:flex-start}
-    .msg__avatar{width:36px;height:36px;border-radius:var(--radius-full);background:rgba(0,0,0,0.06);display:grid;place-items:center;flex:0 0 auto;border:1px solid var(--gray-300);user-select:none}
-    :root[data-theme="dark"] .msg__avatar{background:rgba(255,255,255,0.06)}
-    @media (prefers-color-scheme:dark){ :root:not([data-theme]) .msg__avatar{background:rgba(255,255,255,0.06)} }
-    .msg__avatar span{font-size:14px;font-weight:600;color:var(--gray-700)}
-
+    .msg{display:flex;gap:0;margin-bottom:var(--space-4);align-items:flex-start}
+    .msg__avatar{display:none}
     .msg__bubble{
-      max-width:78ch;
+      max-width:100%;
+      width:100%;
       padding:var(--space-4);
       border-radius:var(--radius-lg);
       border:1px solid var(--gray-300);
@@ -272,7 +272,6 @@
       background:var(--bubble-assistant-bg);
       color:var(--gray-800);
       min-width:0;
-      width:100%;
     }
     .msg--user .msg__bubble{background:var(--bubble-user-bg);border-color:rgba(var(--secondary-blue-rgb),0.35)}
     .msg--system .msg__bubble{background:var(--bubble-system-bg);border-color:rgba(var(--monaco-red-rgb),0.35)}
@@ -280,7 +279,6 @@
     .msg__meta{display:flex;gap:var(--space-3);align-items:baseline;margin-bottom:var(--space-2);color:var(--gray-600);font-size:var(--text-xs)}
     .msg__role{font-weight:600;color:var(--gray-700)}
     .msg__content{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--text-base);line-height:var(--leading-relaxed)}
-
     .msg__actions{margin-top:var(--space-3);display:flex;gap:var(--space-2);flex-wrap:wrap}
 
     .chip{
@@ -374,7 +372,6 @@
     .icon-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm);border-color:var(--gray-400)}
     .send-btn:focus, .icon-btn:focus, .btn:focus{outline:2px solid var(--secondary-blue);outline-offset:2px}
 
-    /* Sidebar */
     .side{padding:var(--space-6)}
     .side h2{font-family:var(--font-secondary);font-size:var(--text-lg);margin:0 0 var(--space-3);color:var(--primary-blue)}
     :root[data-theme="dark"] .side h2{color:rgba(255,255,255,0.95)}
@@ -402,11 +399,6 @@
       .send-btn{min-width:110px}
       .msg__bubble{max-width:100%}
     }
-
-    /* Make messages full-width (no left avatar column) */
-    .msg{gap:0}
-    .msg__avatar{display:none}
-    .msg__bubble{max-width:100%;width:100%}
   </style>
 </head>
 
@@ -543,14 +535,14 @@
   </main>
 
   <script>
-    // ✅ FIX: put URL in API_URL string (and keep fetch(API_URL, ...))
-    // IMPORTANT: this URL looks like a web UI page, not an API. It may not return JSON.
-    const API_URL = "https://app.chatgptbuilder.io/webchat/?p=1120485&id=dVJHWjXLkq4OhmzmTo";
+    // ✅ Chatbuilder Widget IDs (from your snippet)
+    const CHATBUILDER_ID = "dVJHWjXLkq4OhmzmTo";
+    const CHATBUILDER_ACCOUNT = "1120485";
+    const CHATBUILDER_COLOR = "#36D6B5";
 
     const STORAGE_KEY = "eme_chat_v1";
     const THEME_KEY = "eme_theme_v1";
     const MAX_CHARS = 4000;
-    const TIMEOUT_MS = 30000;
 
     const chatEl = document.getElementById("chat");
     const emptyPanelEl = document.getElementById("emptyPanel");
@@ -618,12 +610,6 @@
       return "Système";
     }
 
-    function avatarText(role) {
-      if (role === "user") return "👤";
-      if (role === "assistant") return "EME";
-      return "⚠️";
-    }
-
     function formatTime(ts) {
       try {
         const d = new Date(ts);
@@ -666,11 +652,6 @@
       const wrapper = document.createElement("div");
       wrapper.className = "msg " + (msg.role === "user" ? "msg--user" : msg.role === "assistant" ? "msg--assistant" : "msg--system");
 
-      const avatar = document.createElement("div");
-      avatar.className = "msg__avatar";
-      avatar.setAttribute("aria-hidden", "true");
-      avatar.innerHTML = `<span>${escapeHtml(avatarText(msg.role))}</span>`;
-
       const bubble = document.createElement("div");
       bubble.className = "msg__bubble";
       bubble.setAttribute("data-id", msg.id);
@@ -689,30 +670,6 @@
       bubble.appendChild(meta);
       bubble.appendChild(content);
 
-      if (msg.role === "assistant") {
-        const actions = document.createElement("div");
-        actions.className = "msg__actions";
-
-        const copyBtn = document.createElement("button");
-        copyBtn.type = "button";
-        copyBtn.className = "chip";
-        copyBtn.setAttribute("aria-label", "Copier la réponse");
-        copyBtn.textContent = "Copier";
-        copyBtn.addEventListener("click", async () => {
-          try {
-            await navigator.clipboard.writeText(msg.text);
-            copyBtn.textContent = "Copié ✓";
-            setTimeout(() => copyBtn.textContent = "Copier", 1200);
-          } catch {
-            addSystemMessage("Impossible de copier automatiquement. Vous pouvez sélectionner le texte et le copier.");
-          }
-        });
-
-        actions.appendChild(copyBtn);
-        bubble.appendChild(actions);
-      }
-
-      wrapper.appendChild(avatar);
       wrapper.appendChild(bubble);
       return wrapper;
     }
@@ -740,11 +697,6 @@
       return msg;
     }
 
-    function addSystemMessage(text) {
-      state = loadState();
-      addMessage(state, "system", text);
-    }
-
     function updateCounter() {
       const len = (inputEl.value ?? "").length;
       countEl.textContent = `${len} / ${MAX_CHARS}`;
@@ -761,48 +713,8 @@
       inputEl.style.height = next + "px";
     }
 
-    function controllerWithTimeout(ms) {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), ms);
-      return { controller, cancel: () => clearTimeout(t) };
-    }
-
-    function extractReply(json) {
-      if (!json) return "";
-      if (typeof json === "string") return json;
-      if (typeof json.reply === "string") return json.reply;
-      if (typeof json.answer === "string") return json.answer;
-      if (typeof json.message === "string") return json.message;
-      const c = json.choices?.[0]?.message?.content;
-      if (typeof c === "string") return c;
-      return "";
-    }
-
-    function demoReply(userText) {
-      const t = userText.toLowerCase();
-      if (t.includes("fonds bleu") || t.includes("financ")) {
-        return [
-          "Voici l’essentiel sur le **Fonds Bleu** (informations générales) :",
-          "",
-          "- Principe : cofinancement **sous conditions** jusqu’à **70%** de la valeur **hors taxes**.",
-          "- Priorité : projets structurants à forte valeur ajoutée (cybersécurité, conformité, digitalisation des processus internes, intégration de la donnée/IA…).",
-          "- Exclusion : le Fonds Bleu **n’inclut pas** la participation au financement de projets liés au **cloud computing**.",
-          "- Délais : dossier complet validé **8 à 10 semaines**, puis environ **1 mois** pour la commission (total ~ **3 mois**).",
-          "",
-          "Prochaine étape : consultez la page “Financer son projet” sur le site EME ou contactez **fondsbleu@gouv.mc**."
-        ].join("\n");
-      }
-
-      return [
-        "Je peux vous aider sur : **EME**, l’**autodiagnostic**, l’**annuaire**, **FlashUP**, la **Tool Box**, et le **Fonds Bleu**.",
-        "",
-        "Quelle est votre question ?"
-      ].join("\n");
-    }
-
     let state = [];
     let isSending = false;
-    let pendingTypingId = null;
 
     function setSendEnabled() {
       const raw = inputEl.value ?? "";
@@ -811,130 +723,16 @@
       sendBtn.disabled = !enabled;
     }
 
-    function setTyping(on) {
-      if (pendingTypingId) {
-        const node = chatEl.querySelector(`[data-id="${pendingTypingId}"]`)?.closest(".msg");
-        if (node) node.remove();
-        pendingTypingId = null;
-      }
-      if (!on) return;
-
-      const typing = { id: uid(), ts: nowISO(), role: "assistant", text: "" };
-      pendingTypingId = typing.id;
-
-      const wrapper = document.createElement("div");
-      wrapper.className = "msg msg--assistant";
-
-      const avatar = document.createElement("div");
-      avatar.className = "msg__avatar";
-      avatar.setAttribute("aria-hidden", "true");
-      avatar.innerHTML = `<span>${escapeHtml(avatarText("assistant"))}</span>`;
-
-      const bubble = document.createElement("div");
-      bubble.className = "msg__bubble";
-      bubble.setAttribute("data-id", typing.id);
-
-      const meta = document.createElement("div");
-      meta.className = "msg__meta";
-      meta.innerHTML = `<span class="msg__role">${escapeHtml(roleLabel("assistant"))}</span><span>${escapeHtml(formatTime(typing.ts))}</span>`;
-
-      const content = document.createElement("div");
-      content.className = "msg__content";
-      content.innerHTML = `
-        <span class="typing" aria-label="L’assistant rédige une réponse">
-          <span>Réflexion en cours</span>
-          <span class="dots" aria-hidden="true">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-          </span>
-        </span>
-      `;
-
-      bubble.appendChild(meta);
-      bubble.appendChild(content);
-      wrapper.appendChild(avatar);
-      wrapper.appendChild(bubble);
-
-      chatEl.appendChild(wrapper);
-      scrollToBottom();
-    }
-
-    async function sendMessage() {
-      const raw = inputEl.value ?? "";
-      const trimmed = raw.trim();
-      if (!trimmed) return;
-
-      if (raw.length > MAX_CHARS) {
-        addMessage(state, "system", `Votre message dépasse la limite de ${MAX_CHARS} caractères. Merci de le raccourcir.`);
-        return;
-      }
-
-      isSending = true;
-      setSendEnabled();
-
-      addMessage(state, "user", raw);
-      setTyping(true);
-
-      const originalInput = raw;
-      const payload = { message: trimmed };
-
-      try {
-        let replyText = "";
-
-        // If API_URL is empty, use demo mode. Otherwise call API_URL.
-        if (!API_URL) {
-          await new Promise(r => setTimeout(r, 450));
-          replyText = demoReply(trimmed);
-        } else {
-          const { controller, cancel } = controllerWithTimeout(TIMEOUT_MS);
-          let res, json;
-
-          try {
-            // ✅ FIX: use fetch(API_URL, ...) and API_URL is a quoted string.
-            res = await fetch(API_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-              signal: controller.signal
-            });
-          } finally {
-            cancel();
-          }
-
-          if (!res.ok) throw new Error(`Erreur serveur (${res.status})`);
-
-          // NOTE: if API_URL returns HTML, this will throw.
-          json = await res.json();
-
-          replyText = extractReply(json);
-          if (!replyText) throw new Error("Réponse vide ou format inattendu.");
-        }
-
-        setTyping(false);
-        addMessage(state, "assistant", replyText);
-
-        inputEl.value = "";
-        updateCounter();
-        autoresizeTextarea();
-        inputEl.focus();
-
-      } catch (err) {
-        setTyping(false);
-
-        const isTimeout = (err?.name === "AbortError");
-        const msg = isTimeout
-          ? "La requête a expiré (timeout). Merci de réessayer."
-          : `Une erreur est survenue lors de l’envoi (${String(err?.message || err)}).`;
-
-        addMessage(state, "system", msg + " Votre message a été conservé pour réessayer.");
-
-        inputEl.value = originalInput;
-        updateCounter();
-        autoresizeTextarea();
-        inputEl.focus();
-      } finally {
-        isSending = false;
-        setSendEnabled();
-      }
+    function wireQuickQuestions() {
+      document.querySelectorAll(".chip[data-q]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          inputEl.value = btn.getAttribute("data-q") || "";
+          updateCounter();
+          autoresizeTextarea();
+          setSendEnabled();
+          inputEl.focus();
+        });
+      });
     }
 
     function clearChat() {
@@ -963,16 +761,75 @@
       }
     }
 
-    function wireQuickQuestions() {
-      document.querySelectorAll(".chip[data-q]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          inputEl.value = btn.getAttribute("data-q") || "";
-          updateCounter();
-          autoresizeTextarea();
-          setSendEnabled();
-          inputEl.focus();
-        });
+    // ✅ Initialize Chatbuilder widget (no CORS, no fetch)
+    function initChatbuilderWidget() {
+      if (!window.ktt10 || typeof window.ktt10.setup !== "function") {
+        console.warn("Chatbuilder plugin not loaded (ktt10 missing). Check adblocker/network.");
+        return false;
+      }
+      window.ktt10.setup({
+        id: CHATBUILDER_ID,
+        accountId: CHATBUILDER_ACCOUNT,
+        color: CHATBUILDER_COLOR
       });
+      return true;
+    }
+
+    // ✅ When user "sends", we open the Chatbuilder widget instead of doing fetch()
+    function openChatbuilderAndHandoff(text) {
+      const ok = initChatbuilderWidget();
+      if (!ok) {
+        addMessage(state, "system", "Le widget Chatbuilder ne se charge pas (bloqué par un bloqueur de pubs / réseau). Essayez en navigation privée ou désactivez le bloqueur.");
+        return;
+      }
+
+      // Best-effort: some widgets expose open() / toggle() / show()
+      try {
+        if (window.ktt10.open) window.ktt10.open();
+        else if (window.ktt10.show) window.ktt10.show();
+        else if (window.ktt10.toggle) window.ktt10.toggle();
+      } catch {}
+
+      // Best-effort: try to prefill message into widget input if it's an iframe.
+      // If it doesn't work, user can just paste—still no CORS.
+      try {
+        // attempt to find an iframe created by the widget and postMessage
+        const iframe = document.querySelector('iframe[src*="chatgptbuilder.io"]');
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({ type: "prefill", text }, "*");
+        }
+      } catch {}
+    }
+
+    async function sendMessage() {
+      const raw = inputEl.value ?? "";
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+
+      if (raw.length > MAX_CHARS) {
+        addMessage(state, "system", `Votre message dépasse la limite de ${MAX_CHARS} caractères. Merci de le raccourcir.`);
+        return;
+      }
+
+      isSending = true;
+      setSendEnabled();
+
+      // Show user message in your UI
+      addMessage(state, "user", raw);
+
+      // Show instruction instead of assistant reply (since Chatbuilder widget handles the real chat)
+      addMessage(state, "system", "Ouverture du chat… (le widget Chatbuilder s’affiche en bas de page).");
+
+      // Open widget (no fetch => no CORS)
+      openChatbuilderAndHandoff(trimmed);
+
+      inputEl.value = "";
+      updateCounter();
+      autoresizeTextarea();
+      inputEl.focus();
+
+      isSending = false;
+      setSendEnabled();
     }
 
     function init() {
@@ -1007,6 +864,9 @@
       inputEl.focus();
 
       wireQuickQuestions();
+
+      // Pre-init widget (optional)
+      initChatbuilderWidget();
     }
 
     window.addEventListener("DOMContentLoaded", init);
