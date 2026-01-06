@@ -14,9 +14,6 @@
   <script defer src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
 
-  <!-- ✅ Chatbuilder plugin (avoids CORS by embedding widget) -->
-  <script defer src="https://app.chatgptbuilder.io/webchat/plugin.js?v=6"></script>
-
   <style>
     :root{
       --monaco-red:#CE1126; --monaco-red-rgb:206,17,38;
@@ -205,11 +202,7 @@
 
     .monaco-accent{border-left:4px solid var(--monaco-red);padding-left:var(--space-4)}
 
-    .chat{
-      display:flex;
-      flex-direction:column;
-      height:min(84vh, 980px);
-    }
+    .chat{display:flex;flex-direction:column;height:min(84vh, 980px);}
 
     .chat__disclaimer{
       padding:var(--space-4) var(--space-6);
@@ -254,11 +247,7 @@
       line-height:var(--leading-relaxed);
     }
 
-    .quick-questions{
-      display:flex;
-      flex-wrap:wrap;
-      gap:var(--space-2);
-    }
+    .quick-questions{display:flex;flex-wrap:wrap;gap:var(--space-2);}
 
     .msg{display:flex;gap:0;margin-bottom:var(--space-4);align-items:flex-start}
     .msg__avatar{display:none}
@@ -535,14 +524,24 @@
   </main>
 
   <script>
-    // ✅ Chatbuilder Widget IDs (from your snippet)
-    const CHATBUILDER_ID = "dVJHWjXLkq4OhmzmTo";
-    const CHATBUILDER_ACCOUNT = "1120485";
-    const CHATBUILDER_COLOR = "#36D6B5";
+    /**
+     * ✅ IMPORTANT:
+     * Put here your proxy URL (Cloudflare Worker / Lambda).
+     * Example:
+     *   const API_URL = "https://eme-chat-proxy.<yourname>.workers.dev/chat";
+     *
+     * Leave empty => demo mode
+     */
+    const API_URL = "";
+
+    // Chatbuilder identifiers (used ONLY by the proxy, not directly by the browser)
+    const CHATBUILDER_ACCOUNT_ID = "1120485";
+    const CHATBUILDER_BOT_ID = "dVJHWjXLkq4OhmzmTo";
 
     const STORAGE_KEY = "eme_chat_v1";
     const THEME_KEY = "eme_theme_v1";
     const MAX_CHARS = 4000;
+    const TIMEOUT_MS = 30000;
 
     const chatEl = document.getElementById("chat");
     const emptyPanelEl = document.getElementById("emptyPanel");
@@ -679,9 +678,7 @@
     function renderAll(messages) {
       chatEl.innerHTML = "";
       chatEl.appendChild(emptyPanelEl);
-
       for (const msg of messages) chatEl.appendChild(createMsgNode(msg));
-
       syncEmptyPanel(messages);
       scrollToBottom();
     }
@@ -690,7 +687,6 @@
       const msg = { id: uid(), ts: nowISO(), role, text: String(text ?? "") };
       messages.push(msg);
       saveState(messages);
-
       syncEmptyPanel(messages);
       chatEl.appendChild(createMsgNode(msg));
       scrollToBottom();
@@ -713,26 +709,200 @@
       inputEl.style.height = next + "px";
     }
 
-    let state = [];
-    let isSending = false;
-
-    function setSendEnabled() {
-      const raw = inputEl.value ?? "";
-      const trimmed = raw.trim();
-      const enabled = trimmed.length > 0 && raw.length <= MAX_CHARS && !isSending;
-      sendBtn.disabled = !enabled;
+    function controllerWithTimeout(ms) {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), ms);
+      return { controller, cancel: () => clearTimeout(t) };
     }
 
-    function wireQuickQuestions() {
-      document.querySelectorAll(".chip[data-q]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          inputEl.value = btn.getAttribute("data-q") || "";
-          updateCounter();
-          autoresizeTextarea();
-          setSendEnabled();
-          inputEl.focus();
-        });
-      });
+    function extractReply(json) {
+      if (!json) return "";
+      if (typeof json === "string") return json;
+      if (typeof json.reply === "string") return json.reply;
+      if (typeof json.answer === "string") return json.answer;
+      if (typeof json.message === "string") return json.message;
+      const c = json.choices?.[0]?.message?.content;
+      if (typeof c === "string") return c;
+      return "";
+    }
+
+    function demoReply(userText) {
+      const t = userText.toLowerCase();
+      if (t.includes("fonds bleu") || t.includes("financ")) {
+        return [
+          "Voici l’essentiel sur le **Fonds Bleu** (informations générales) :",
+          "",
+          "- Principe : cofinancement **sous conditions** jusqu’à **70%** de la valeur **hors taxes**.",
+          "- Priorité : projets structurants à forte valeur ajoutée (cybersécurité, conformité, digitalisation des processus internes, intégration de la donnée/IA…).",
+          "- Exclusion : le Fonds Bleu **n’inclut pas** la participation au financement de projets liés au **cloud computing**.",
+          "- Délais : dossier complet validé **8 à 10 semaines**, puis environ **1 mois** pour la commission (total ~ **3 mois**).",
+          "",
+          "Prochaine étape : consultez la page “Financer son projet” sur le site EME ou contactez **fondsbleu@gouv.mc**."
+        ].join("\n");
+      }
+
+      if (t.includes("autodiagnostic") || t.includes("maturité") || t.includes("score")) {
+        return [
+          "L’**autodiagnostic de maturité numérique** est le premier pas pour structurer votre transition numérique :",
+          "",
+          "- **35 questions** (environ **15 minutes**).",
+          "- Évalue 5 dimensions : **Vision du numérique**, **Organisation & culture**, **Présence en ligne**, **Vente & relation client**, **Sécurité & infrastructures**.",
+          "- Résultat : un score **1 à 100** + des notes par thématique + des recommandations.",
+          "",
+          "Prochaine étape : créez un compte sur EME, lancez l’autodiagnostic, puis utilisez les recommandations pour trouver des partenaires."
+        ].join("\n");
+      }
+
+      if (t.includes("flashlearn") || t.includes("opportunité ia") || t.includes("2026")) {
+        return [
+          "Nouveautés **2026** mentionnées sur la plateforme EME :",
+          "",
+          "- **Questionnaire “Opportunité IA”** : outil rapide pour identifier où l’IA peut créer de la valeur dans votre activité.",
+          "- **FlashLearn IA** : parcours e-learning structuré par thématiques, avec des modules courts et concrets.",
+          "",
+          "Prochaine étape : explorez la rubrique EME dédiée aux ressources et à l’IA (Tool Box / contenus 2026)."
+        ].join("\n");
+      }
+
+      if (t.includes("annuaire") || t.includes("professionnel")) {
+        return [
+          "L’**annuaire des professionnels du numérique** EME vous aide à trouver des experts locaux pour vous accompagner :",
+          "",
+          "- Liste **non exhaustive** de prestataires enregistrés au **Répertoire du Commerce et de l’Industrie de Monaco (RCI)**.",
+          "- Des prestataires monégasques non listés peuvent aussi vous accompagner.",
+          "- Attention : tous les services listés ne sont pas forcément éligibles au Fonds Bleu (consultez les conditions).",
+          "",
+          "Prochaine étape : filtrez par expertise, contactez plusieurs prestataires, et comparez leur approche selon votre besoin."
+        ].join("\n");
+      }
+
+      return [
+        "Je peux vous aider sur : **EME**, l’**autodiagnostic**, l’**annuaire**, **FlashUP**, la **Tool Box**, et le **Fonds Bleu**.",
+        "",
+        "Quelle est votre question : diagnostic, financement, recherche de prestataire, ou montée en compétence IA (FlashLearn IA) ?"
+      ].join("\n");
+    }
+
+    let state = [];
+    let isSending = false;
+    let pendingTypingId = null;
+
+    function setTyping(on) {
+      if (pendingTypingId) {
+        const node = chatEl.querySelector(`[data-id="${pendingTypingId}"]`)?.closest(".msg");
+        if (node) node.remove();
+        pendingTypingId = null;
+      }
+      if (!on) return;
+
+      const typing = { id: uid(), ts: nowISO(), role: "assistant", text: "" };
+      pendingTypingId = typing.id;
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "msg msg--assistant";
+
+      const bubble = document.createElement("div");
+      bubble.className = "msg__bubble";
+      bubble.setAttribute("data-id", typing.id);
+
+      const meta = document.createElement("div");
+      meta.className = "msg__meta";
+      meta.innerHTML = `<span class="msg__role">${escapeHtml(roleLabel("assistant"))}</span><span>${escapeHtml(formatTime(typing.ts))}</span>`;
+
+      const content = document.createElement("div");
+      content.className = "msg__content";
+      content.innerHTML = `
+        <span class="typing" aria-label="L’assistant rédige une réponse">
+          <span>Réflexion en cours</span>
+          <span class="dots" aria-hidden="true">…</span>
+        </span>
+      `;
+
+      bubble.appendChild(meta);
+      bubble.appendChild(content);
+      wrapper.appendChild(bubble);
+
+      chatEl.appendChild(wrapper);
+      scrollToBottom();
+    }
+
+    async function sendMessage() {
+      const raw = inputEl.value ?? "";
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+
+      if (raw.length > MAX_CHARS) {
+        addMessage(state, "system", `Votre message dépasse la limite de ${MAX_CHARS} caractères. Merci de le raccourcir.`);
+        return;
+      }
+
+      isSending = true;
+      setSendEnabled();
+
+      addMessage(state, "user", raw);
+      setTyping(true);
+
+      const originalInput = raw;
+
+      try {
+        let replyText = "";
+
+        if (!API_URL) {
+          // demo
+          await new Promise(r => setTimeout(r, 450));
+          replyText = demoReply(trimmed);
+        } else {
+          // ✅ Call YOUR proxy (same UI, no widget, CORS solved by proxy)
+          const { controller, cancel } = controllerWithTimeout(TIMEOUT_MS);
+
+          try {
+            const res = await fetch(API_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: trimmed,
+                // helpful for proxy; you can remove these if you hardcode in the proxy
+                accountId: CHATBUILDER_ACCOUNT_ID,
+                botId: CHATBUILDER_BOT_ID
+              }),
+              signal: controller.signal
+            });
+
+            if (!res.ok) throw new Error(`Erreur serveur (${res.status})`);
+            const json = await res.json();
+            replyText = extractReply(json);
+            if (!replyText) throw new Error("Réponse vide ou format inattendu.");
+          } finally {
+            cancel();
+          }
+        }
+
+        setTyping(false);
+        addMessage(state, "assistant", replyText);
+
+        inputEl.value = "";
+        updateCounter();
+        autoresizeTextarea();
+        inputEl.focus();
+
+      } catch (err) {
+        setTyping(false);
+
+        const isTimeout = (err?.name === "AbortError");
+        const msg = isTimeout
+          ? "La requête a expiré (timeout). Merci de réessayer."
+          : `Une erreur est survenue lors de l’envoi (${String(err?.message || err)}).`;
+
+        addMessage(state, "system", msg + " Votre message a été conservé pour réessayer.");
+
+        inputEl.value = originalInput;
+        updateCounter();
+        autoresizeTextarea();
+        inputEl.focus();
+      } finally {
+        isSending = false;
+        setSendEnabled();
+      }
     }
 
     function clearChat() {
@@ -761,75 +931,23 @@
       }
     }
 
-    // ✅ Initialize Chatbuilder widget (no CORS, no fetch)
-    function initChatbuilderWidget() {
-      if (!window.ktt10 || typeof window.ktt10.setup !== "function") {
-        console.warn("Chatbuilder plugin not loaded (ktt10 missing). Check adblocker/network.");
-        return false;
-      }
-      window.ktt10.setup({
-        id: CHATBUILDER_ID,
-        accountId: CHATBUILDER_ACCOUNT,
-        color: CHATBUILDER_COLOR
+    function wireQuickQuestions() {
+      document.querySelectorAll(".chip[data-q]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          inputEl.value = btn.getAttribute("data-q") || "";
+          updateCounter();
+          autoresizeTextarea();
+          setSendEnabled();
+          inputEl.focus();
+        });
       });
-      return true;
     }
 
-    // ✅ When user "sends", we open the Chatbuilder widget instead of doing fetch()
-    function openChatbuilderAndHandoff(text) {
-      const ok = initChatbuilderWidget();
-      if (!ok) {
-        addMessage(state, "system", "Le widget Chatbuilder ne se charge pas (bloqué par un bloqueur de pubs / réseau). Essayez en navigation privée ou désactivez le bloqueur.");
-        return;
-      }
-
-      // Best-effort: some widgets expose open() / toggle() / show()
-      try {
-        if (window.ktt10.open) window.ktt10.open();
-        else if (window.ktt10.show) window.ktt10.show();
-        else if (window.ktt10.toggle) window.ktt10.toggle();
-      } catch {}
-
-      // Best-effort: try to prefill message into widget input if it's an iframe.
-      // If it doesn't work, user can just paste—still no CORS.
-      try {
-        // attempt to find an iframe created by the widget and postMessage
-        const iframe = document.querySelector('iframe[src*="chatgptbuilder.io"]');
-        if (iframe && iframe.contentWindow) {
-          iframe.contentWindow.postMessage({ type: "prefill", text }, "*");
-        }
-      } catch {}
-    }
-
-    async function sendMessage() {
+    function setSendEnabled() {
       const raw = inputEl.value ?? "";
       const trimmed = raw.trim();
-      if (!trimmed) return;
-
-      if (raw.length > MAX_CHARS) {
-        addMessage(state, "system", `Votre message dépasse la limite de ${MAX_CHARS} caractères. Merci de le raccourcir.`);
-        return;
-      }
-
-      isSending = true;
-      setSendEnabled();
-
-      // Show user message in your UI
-      addMessage(state, "user", raw);
-
-      // Show instruction instead of assistant reply (since Chatbuilder widget handles the real chat)
-      addMessage(state, "system", "Ouverture du chat… (le widget Chatbuilder s’affiche en bas de page).");
-
-      // Open widget (no fetch => no CORS)
-      openChatbuilderAndHandoff(trimmed);
-
-      inputEl.value = "";
-      updateCounter();
-      autoresizeTextarea();
-      inputEl.focus();
-
-      isSending = false;
-      setSendEnabled();
+      const enabled = trimmed.length > 0 && raw.length <= MAX_CHARS && !isSending;
+      sendBtn.disabled = !enabled;
     }
 
     function init() {
@@ -864,9 +982,6 @@
       inputEl.focus();
 
       wireQuickQuestions();
-
-      // Pre-init widget (optional)
-      initChatbuilderWidget();
     }
 
     window.addEventListener("DOMContentLoaded", init);
